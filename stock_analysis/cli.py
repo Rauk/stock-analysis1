@@ -8,7 +8,7 @@ import textwrap
 import time
 from datetime import datetime
 
-from .analyzer import run_copilot_analysis
+from .analyzer import run_copilot_analysis, DEFAULT_TIMEOUT_SECONDS
 from .config import COPILOT_MODELS, EMAIL_CONFIG, ANALYSIS_PROMPT_TEMPLATE
 from .email_sender import report_to_html, send_email
 from .scraper import scrape_groww, scrape_screener, format_screener_report
@@ -56,6 +56,13 @@ def parse_args():
         "--save",
         metavar="FILE",
         help="Save the report to a file",
+    )
+    parser.add_argument(
+        "--timeout",
+        type=int,
+        default=DEFAULT_TIMEOUT_SECONDS // 60,
+        metavar="MINUTES",
+        help=f"Max minutes to wait for the AI analysis (default: {DEFAULT_TIMEOUT_SECONDS // 60})",
     )
     return parser.parse_args()
 
@@ -147,7 +154,7 @@ def main():
         screener_data      = screener_context,
         groww_data_section = groww_data_section,
     )
-    report = run_copilot_analysis(prompt, model_id)
+    report = run_copilot_analysis(prompt, model_id, timeout=args.timeout * 60)
 
     # 3. Assemble final report: header + AI analysis + raw Screener data section
     groww_ref = f" · [Groww]({args.groww})" if args.groww else ""
@@ -160,6 +167,7 @@ def main():
         f"| **NSE Symbol** | {nse_symbol} |\n"
         f"| **Primary sources** | [BSE India](https://www.bseindia.com) · [NSE India](https://www.nseindia.com) |\n"
         f"| **Reference links** | [Screener.in]({args.screener}){groww_ref} |\n\n"
+        "[TOC]\n\n"
         "---\n\n"
     )
     screener_section = "\n\n---\n\n" + format_screener_report(metadata, screener_data)

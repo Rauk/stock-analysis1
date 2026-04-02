@@ -35,7 +35,10 @@ def report_to_html(md_text: str) -> str:
     """Convert a Markdown report to a styled HTML email body."""
     body = md_lib.markdown(
         md_text,
-        extensions=["tables", "fenced_code", "nl2br", "sane_lists"],
+        extensions=["tables", "fenced_code", "nl2br", "sane_lists", "toc"],
+        extension_configs={
+            "toc": {"title": "Table of Contents", "toc_depth": "1-3"},
+        },
     )
     return f"""<!DOCTYPE html>
 <html><head>
@@ -62,6 +65,20 @@ def report_to_html(md_text: str) -> str:
   a          {{ color: #3949ab; }}
   .footer    {{ font-size: 12px; color: #888; margin-top: 40px;
                 border-top: 1px solid #eee; padding-top: 14px; }}
+  /* Table of Contents */
+  .toc       {{ background: #f3f4fb; border: 1px solid #c5cae9; border-radius: 6px;
+                padding: 16px 24px; margin: 16px 0 24px 0; display: inline-block;
+                min-width: 260px; max-width: 100%; }}
+  .toc .toctitle {{ font-weight: bold; color: #1a237e; font-size: 1em;
+                    margin-bottom: 10px; text-transform: uppercase;
+                    letter-spacing: 0.05em; }}
+  .toc ul    {{ margin: 0; padding-left: 18px; }}
+  .toc li    {{ margin: 4px 0; line-height: 1.5; }}
+  .toc a     {{ color: #3949ab; text-decoration: none; font-size: 14px; }}
+  .toc a:hover {{ text-decoration: underline; }}
+  .toc ul ul {{ padding-left: 16px; }}
+  .toc ul ul li a {{ color: #5c6bc0; font-size: 13px; }}
+  .toc ul ul ul li a {{ color: #7986cb; font-size: 12px; }}
 </style>
 </head><body>
 {body}
