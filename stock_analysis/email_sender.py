@@ -10,16 +10,29 @@ import markdown as md_lib
 from .config import EMAIL_CONFIG
 
 
-def send_email(subject: str, body_text: str, body_html: str = "") -> None:
-    """Send the analysis report via SMTP (Gmail App Password recommended)."""
+def send_email(subject: str, body_text: str, body_html: str = "", doc_url: str = "") -> None:
+    """Send the analysis report via SMTP (Gmail App Password recommended).
+
+    Args:
+        subject:   Email subject line.
+        body_text: Plain-text fallback body.
+        body_html: Optional HTML body (preferred by email clients).
+        doc_url:   Optional Google Doc URL — prepended as a prominent link.
+    """
     cfg = EMAIL_CONFIG
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"]    = cfg["sender_email"]
     msg["To"]      = cfg["recipient_email"]
 
+    if doc_url:
+        plain_prefix = f"📄 Full report (Google Doc): {doc_url}\n\n{'─' * 60}\n\n"
+        body_text = plain_prefix + body_text
+
     msg.attach(MIMEText(body_text, "plain", "utf-8"))
     if body_html:
+        if doc_url:
+            body_html = _inject_doc_link(body_html, doc_url)
         msg.attach(MIMEText(body_html, "html", "utf-8"))
 
     print(f"  [email] Sending to {cfg['recipient_email']} via {cfg['smtp_server']} …")
@@ -29,6 +42,22 @@ def send_email(subject: str, body_text: str, body_html: str = "") -> None:
         server.login(cfg["sender_email"], cfg["sender_password"])
         server.sendmail(cfg["sender_email"], cfg["recipient_email"], msg.as_string())
     print("  [email] Sent successfully.")
+
+
+def _inject_doc_link(html: str, doc_url: str) -> str:
+    """Insert a Google Doc link banner immediately after <body> in the HTML."""
+    banner = (
+        f'<div style="background:#e8f5e9;border-left:4px solid #43a047;'
+        f'padding:12px 16px;margin-bottom:20px;border-radius:0 4px 4px 0;">'
+        f'<strong style="color:#2e7d32;">📄 Full report (Google Doc):</strong> '
+        f'<a href="{doc_url}" style="color:#1565c0;">{doc_url}</a>'
+        f'</div>\n'
+    )
+    # Insert right after <body>
+    if "<body>" in html:
+        return html.replace("<body>", f"<body>\n{banner}", 1)
+    # Fallback: prepend to the whole HTML
+    return banner + html
 
 
 def report_to_html(md_text: str) -> str:

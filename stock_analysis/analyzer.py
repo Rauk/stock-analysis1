@@ -8,6 +8,43 @@ from .config import COPILOT_BIN
 
 DEFAULT_TIMEOUT_SECONDS = 1800  # 30 minutes
 
+# Prefixes used by the Copilot CLI to annotate tool-call activity in stdout.
+# These are emitted before the actual model response and must be stripped.
+_NOISE_PREFIXES = (
+    "✗ ",   # failed tool call header
+    "● ",   # tool call header (success / in-progress)
+    "│ ",   # tool call body / command lines
+    "└ ",   # tool call result / closing line
+)
+
+
+def _strip_tool_noise(text: str) -> str:
+    """Remove Copilot CLI tool-call log lines from the model output.
+
+    Strategy: locate the first markdown heading line (starts with '#') and
+    discard everything before it.  This reliably separates the tool-activity
+    preamble from the report body regardless of how many tool calls were made.
+
+    If no heading is found (e.g. a plain-text or error response), fall back to
+    dropping individual lines that match known noise prefixes so the rest of
+    the content is preserved intact.
+    """
+    lines = text.splitlines()
+
+    # Primary strategy: find the first markdown heading
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith("#"):
+            stripped = "\n".join(lines[i:]).strip()
+            if stripped:
+                return stripped
+
+    # Fallback: drop lines that are clearly tool-call noise
+    cleaned = [
+        line for line in lines
+        if not any(line.startswith(p) for p in _NOISE_PREFIXES)
+    ]
+    return "\n".join(cleaned).strip()
+
 
 def run_copilot_analysis(prompt: str, model: str, timeout: int = DEFAULT_TIMEOUT_SECONDS) -> str:
     """

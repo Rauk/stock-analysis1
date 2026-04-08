@@ -24,6 +24,12 @@ pip-delete-this-directory.txt
 .env
 .env.*
 
+# Google service account key files — NEVER commit these
+*service-account*.json
+*-key.json
+*-credentials.json
+credentials.json
+
 # Editor / IDE
 .vscode/
 .idea/

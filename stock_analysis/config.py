@@ -12,8 +12,14 @@ import os
 # ║    export SENDER_EMAIL="you@gmail.com"                                      ║
 # ║    export SENDER_PASSWORD="your-16-char-app-password"                       ║
 # ║    export RECIPIENT_EMAIL="recipient@gmail.com"                             ║
+# ║    export GOOGLE_SERVICE_ACCOUNT_JSON="/path/to/service-account.json"      ║
+# ║       (or the raw JSON content of the service account key file)             ║
 # ║  Optional:                                                                   ║
+# ║    export GOOGLE_DRIVE_FOLDER_ID="<Drive folder ID to store docs>"         ║
 # ║    export PERPLEXITY_API_KEY="pplx-..."                                     ║
+# ║                                                                              ║
+# ║  Google service account must have the Docs and Drive APIs enabled and       ║
+# ║  the service account email shared on any target Drive folder.               ║
 # ║                                                                              ║
 # ║  NEVER hardcode secrets in this file or commit them to version control.     ║
 # ╚══════════════════════════════════════════════════════════════════════════════╝
@@ -90,7 +96,14 @@ PERPLEXITY_MODEL_DEFAULT = "sonar-pro"
 
 # ── Copilot CLI ───────────────────────────────────────────────────────────────
 import shutil
-COPILOT_BIN = shutil.which("copilot") or "/home/user-admin/.npm-global/bin/copilot"
+# Resolve 'copilot' from PATH; fall back to common npm-global install locations.
+# Override by setting COPILOT_BIN env var: export COPILOT_BIN="/custom/path/copilot"
+COPILOT_BIN = (
+    os.environ.get("COPILOT_BIN", "").strip()
+    or shutil.which("copilot")
+    or os.path.expanduser("~/.npm-global/bin/copilot")
+    or os.path.expanduser("~/.local/bin/copilot")
+)
 COPILOT_MODELS = {
     "sonnet": "claude-sonnet-4.6",
     "opus":   "claude-opus-4.6",

@@ -8,10 +8,16 @@ import textwrap
 import time
 from datetime import datetime
 
-from .analyzer import run_copilot_analysis, DEFAULT_TIMEOUT_SECONDS
+from .analyzer import run_copilot_analysis, _strip_tool_noise, DEFAULT_TIMEOUT_SECONDS
 from .config import COPILOT_MODELS, EMAIL_CONFIG, ANALYSIS_PROMPT_TEMPLATE
 from .email_sender import report_to_html, send_email
 from .scraper import scrape_groww, scrape_screener, format_screener_report
+
+try:
+    from .google_docs import get_or_create_doc, prepend_analysis_to_doc
+    _GDOCS_IMPORTABLE = True
+except ImportError:
+    _GDOCS_IMPORTABLE = False
 
 
 def parse_args():
@@ -51,6 +57,11 @@ def parse_args():
         "--no-email",
         action="store_true",
         help="Skip sending email — print to console only (email is on by default)",
+    )
+    parser.add_argument(
+        "--no-gdocs",
+        action="store_true",
+        help="Skip creating/updating Google Doc (Google Docs is on by default)",
     )
     parser.add_argument(
         "--save",
@@ -97,7 +108,7 @@ def main():
     print(f"  Started at     : {script_start_ts}")
     print(f"{'='*60}\n")
 
-    print("[1/3] Fetching supplementary data …")
+    print("[1/4] Fetching supplementary data …")
     metadata, screener_data, screener_context = scrape_screener(args.screener)
 
     # Fill in name/symbol from metadata if not supplied by user
@@ -141,7 +152,7 @@ def main():
         groww_data_section = ""
 
     # 2. Build prompt and run AI analysis
-    print("\n[2/3] Running AI analysis (BSE/NSE as primary sources) …")
+    print("\n[2/4] Running AI analysis (BSE/NSE as primary sources) …")
     prompt = ANALYSIS_PROMPT_TEMPLATE.format(
         company_name       = company_name,
         stock_symbol       = stock_symbol,
@@ -154,7 +165,19 @@ def main():
         screener_data      = screener_context,
         groww_data_section = groww_data_section,
     )
-    report = run_copilot_analysis(prompt, model_id, timeout=args.timeout * 60)
+    ai_start = time.monotonic()
+    report_raw = run_copilot_analysis(prompt, model_id, timeout=args.timeout * 60)
+    ai_elapsed = time.monotonic() - ai_start
+    ai_mins, ai_secs = divmod(int(ai_elapsed), 60)
+    ai_time_str = f"{ai_mins}m {ai_secs:02d}s" if ai_mins else f"{ai_secs}s"
+
+    # Print the raw output (including tool-call logs) to console/logs for debugging
+    print("\n" + "─" * 60)
+    print(report_raw)
+    print("─" * 60)
+
+    # Strip tool-call noise before using the output in the report (email / Google Doc / file)
+    report = _strip_tool_noise(report_raw)
 
     # 3. Assemble final report: header + AI analysis + raw Screener data section
     groww_ref = f" · [Groww]({args.groww})" if args.groww else ""
@@ -163,6 +186,7 @@ def main():
         f"| | |\n|---|---|\n"
         f"| **Generated** | {report_date} |\n"
         f"| **Model** | {model_id} |\n"
+        f"| **AI analysis time** | {ai_time_str} |\n"
         f"| **BSE Code** | {bse_code} |\n"
         f"| **NSE Symbol** | {nse_symbol} |\n"
         f"| **Primary sources** | [BSE India](https://www.bseindia.com) · [NSE India](https://www.nseindia.com) |\n"
@@ -182,17 +206,40 @@ def main():
             f.write(full_report)
         print(f"\n  [saved] Report written to: {args.save}")
 
+    # 4. Create / update Google Doc
+    import os as _os
+    doc_url = ""
+    _gdocs_env_set = bool(_os.environ.get("GOOGLE_SERVICE_ACCOUNT_JSON", "").strip())
+
+    if args.no_gdocs:
+        print("\n[3/4] Google Docs skipped (--no-gdocs).")
+    elif not _GDOCS_IMPORTABLE:
+        print("\n[3/4] Google Docs skipped — packages not installed.")
+        print("  Run: pip install google-api-python-client google-auth")
+    elif not _gdocs_env_set:
+        print("\n[3/4] Google Docs skipped — GOOGLE_SERVICE_ACCOUNT_JSON not set.")
+        print("  Set it to enable: export GOOGLE_SERVICE_ACCOUNT_JSON=\"/path/to/key.json\"")
+    else:
+        print("\n[3/4] Updating Google Doc …")
+        try:
+            doc_id, doc_url = get_or_create_doc(stock_symbol, company_name)
+            prepend_analysis_to_doc(doc_id, full_report, report_date)
+            print(f"  ✓ Google Doc updated: {doc_url}")
+        except Exception as e:
+            print(f"\n  [gdocs ERROR] {e}")
+            print("  Continuing without Google Docs update.")
+
     if args.no_email:
         _print_timing_summary(script_start)
         print("\n[Email skipped — remove --no-email to send.]\n")
         return
 
-    # 4. Send email (on by default)
-    print("\n[3/3] Sending email …")
+    # 5. Send email (on by default)
+    print("\n[4/4] Sending email …")
     subject   = f"[Stock Analysis] {company_name} ({stock_symbol}) — {report_date}"
     body_html = report_to_html(full_report)
     try:
-        send_email(subject, full_report, body_html)
+        send_email(subject, full_report, body_html, doc_url=doc_url)
     except smtplib.SMTPAuthenticationError:
         print("\n  [email ERROR] Authentication failed.")
         print("  Use a Gmail App Password: https://support.google.com/accounts/answer/185833")
