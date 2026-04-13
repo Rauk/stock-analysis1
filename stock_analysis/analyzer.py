@@ -1,12 +1,14 @@
 """Copilot CLI integration: runs AI-powered analysis via subprocess."""
 
+import os
+import signal
 import subprocess
 import time
 from datetime import datetime
 
 from .config import COPILOT_BIN
 
-DEFAULT_TIMEOUT_SECONDS = 1800  # 30 minutes
+DEFAULT_TIMEOUT_SECONDS = 2700  # 45 minutes
 
 # Prefixes used by the Copilot CLI to annotate tool-call activity in stdout.
 # These are emitted before the actual model response and must be stripped.
@@ -75,6 +77,7 @@ def run_copilot_analysis(prompt: str, model: str, timeout: int = DEFAULT_TIMEOUT
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
+            start_new_session=True,  # put process in its own group so we can kill the whole tree
         )
         try:
             stdout, stderr = proc.communicate(timeout=timeout)
@@ -89,11 +92,16 @@ def run_copilot_analysis(prompt: str, model: str, timeout: int = DEFAULT_TIMEOUT
             return output
 
         except subprocess.TimeoutExpired:
-            proc.kill()
+            # Kill the entire process group to avoid the second communicate() hanging
+            # because child processes still hold the pipes open.
+            try:
+                os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+            except ProcessLookupError:
+                proc.kill()
             partial_stdout, _ = proc.communicate()
             elapsed = time.monotonic() - t_start
             mins = int(elapsed // 60)
-            print(f"  [copilot] Timed out after {elapsed:.1f}s — process killed")
+            print(f"  [copilot] Timed out after {elapsed:.1f}s — process group killed")
 
             partial = (partial_stdout or "").strip()
             warning = (
